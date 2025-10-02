@@ -1,0 +1,4 @@
+app_port_blue: 8001
+app_port_green: 8002
+active_symlink: /etc/nginx/conf.d/app-active.conf
+domain_name: 34.226.23.174
