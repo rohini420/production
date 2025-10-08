@@ -63,11 +63,20 @@ jobs:
       - name: Install docker collection
         run: ansible-galaxy collection install community.docker
 
-      - name: Write SSH key
+      - name: Write SSH key (staging)
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/cicd-ansible
+          chmod 600 ~/.ssh/cicd-ansible
+          {
+            echo "Host *"
+            echo "  StrictHostKeyChecking no"
+            echo "  UserKnownHostsFile=/dev/null"
+            echo "  IdentityFile ~/.ssh/cicd-ansible"
+          } >> ~/.ssh/config
+
+      - name: Sanity check SSH to STAGING
+        run: ssh -o BatchMode=yes ubuntu@98.90.104.212 'echo OK from $(hostname)'
 
       - name: Deploy to STAGING (pull image)
         env:
@@ -76,7 +85,8 @@ jobs:
         run: |
           ANSIBLE_HOST_KEY_CHECKING=False \
           ansible-playbook -i ansible/inventory.ini ansible/staging_pull.yml \
-            -e image=$IMG -e tag=$TAG
+            -e image=$IMG -e tag=$TAG \
+            -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
 
   checks_staging:
     needs: deploy_staging
@@ -116,7 +126,7 @@ jobs:
   deploy_prod:
     needs: checks_staging
     runs-on: ubuntu-latest
-    environment: "production env"   # <-- matches your environment name
+    environment: "production env"   # matches your GitHub environment name
     steps:
       - uses: actions/checkout@v4
 
@@ -126,11 +136,20 @@ jobs:
       - name: Install docker collection
         run: ansible-galaxy collection install community.docker
 
-      - name: Write SSH key
+      - name: Write SSH key (prod)
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/cicd-ansible
+          chmod 600 ~/.ssh/cicd-ansible
+          {
+            echo "Host *"
+            echo "  StrictHostKeyChecking no"
+            echo "  UserKnownHostsFile=/dev/null"
+            echo "  IdentityFile ~/.ssh/cicd-ansible"
+          } >> ~/.ssh/config
+
+      - name: Sanity check SSH to PROD
+        run: ssh -o BatchMode=yes ubuntu@34.226.23.174 'echo OK from $(hostname)'
 
       - name: Blue-green to PROD (pull image)
         env:
@@ -139,7 +158,8 @@ jobs:
         run: |
           ANSIBLE_HOST_KEY_CHECKING=False \
           ansible-playbook -i ansible/inventory.ini ansible/prod-bluegreen-pull.yml \
-            -e image=$IMG -e tag=$TAG
+            -e image=$IMG -e tag=$TAG \
+            -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
 
       - name: Post-deploy smoke
         run: curl -fsS "${{ env.PROD_URL }}/" | grep -i "Employee Directory"
