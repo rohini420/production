@@ -1,0 +1,128 @@
+# ansible/prod-bluegreen.yml
+- hosts: prod
+  become: yes
+  vars:
+    image_tar: /tmp/employee-dir.tar
+    image_name: employee-dir
+    image_tag: "{{ image_tag | default('0.2') }}"
+    container_prefix: app_
+    # active_symlink is defined in group_vars/prod.yml as /etc/nginx/conf.d/app-active.conf
+  tasks:
+    - name: Ensure Docker, Nginx, Python Docker SDK
+      apt:
+        name: [docker.io, nginx, python3-docker]
+        state: present
+        update_cache: yes
+
+    - name: Copy image tarball to server
+      copy:
+        src: "{{ image_tar }}"
+        dest: "{{ image_tar }}"
+        mode: '0644'
+
+    - name: Load Docker image
+      community.docker.docker_image:
+        name: "{{ image_name }}"
+        tag: "{{ image_tag }}"
+        source: load
+        load_path: "{{ image_tar }}"
+
+    - name: Determine inactive color (default blue)
+      shell: |
+        if [ -L "{{ active_symlink }}" ]; then
+          readlink {{ active_symlink }} | grep -q 'app-blue.conf' && echo green || echo blue
+        else
+          echo blue
+        fi
+      register: inactive
+      changed_when: false
+
+    - set_fact:
+        target_color: "{{ inactive.stdout | trim }}"
+
+    - name: Stop target container if exists (clean start)
+      community.docker.docker_container:
+        name: "{{ container_prefix }}{{ target_color }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Start target color container
+      community.docker.docker_container:
+        name: "{{ container_prefix }}{{ target_color }}"
+        image: "{{ image_name }}:{{ image_tag }}"
+        platform: linux/amd64
+        state: started
+        restart_policy: always
+        published_ports:
+          - "{{ (target_color == 'blue') | ternary(app_port_blue, app_port_green) }}:8000"
+        env:
+          DJANGO_SETTINGS_MODULE: employee_directory.settings
+
+    - name: Wait for app on target port
+      uri:
+        url: "http://127.0.0.1:{{ (target_color == 'blue') | ternary(app_port_blue, app_port_green) }}/"
+        status_code: 200
+      register: _h
+      retries: 20
+      delay: 2
+      until: _h.status == 200
+
+    # --- NGINX: write color configs to sites-available, include ONLY active via conf.d ---
+    - name: Ensure nginx sites-available exists
+      file:
+        path: /etc/nginx/sites-available
+        state: directory
+        mode: '0755'
+
+    - name: Render nginx confs for both colors (sites-available)
+      template:
+        src: "roles/nginx/templates/app-{{ item }}.conf.j2"
+        dest: "/etc/nginx/sites-available/app-{{ item }}.conf"
+      loop: ['blue', 'green']
+
+    - name: Remove any color confs from conf.d (avoid duplicates)
+      file:
+        path: "/etc/nginx/conf.d/app-{{ item }}.conf"
+        state: absent
+      loop: ['blue', 'green']
+
+    - name: Disable default site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Point active symlink to target color (conf.d -> sites-available)
+      file:
+        src: "/etc/nginx/sites-available/app-{{ target_color }}.conf"
+        dest: "{{ active_symlink }}"
+        state: link
+        force: yes
+
+    - name: Test nginx config
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - debug:
+        var: nginx_test.stderr_lines
+
+    - name: Reload nginx
+      service:
+        name: nginx
+        state: reloaded
+
+    - name: Health check via nginx
+      uri:
+        url: "http://127.0.0.1/"
+        headers: { Host: "{{ domain_name | default('localhost') }}" }
+        status_code: 200
+      register: nginx_check
+      retries: 10
+      delay: 3
+      until: nginx_check.status == 200
+
+    - name: Stop old color container (optional)
+      community.docker.docker_container:
+        name: "{{ container_prefix }}{{ (target_color == 'blue') | ternary('green','blue') }}"
+        state: stopped
+      ignore_errors: true

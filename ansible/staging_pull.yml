@@ -1,0 +1,71 @@
+- hosts: staging
+  become: yes
+  vars:
+    image: ""   # e.g. ghcr.io/OWNER/REPO/employee-dir
+    tag: ""     # e.g. 42
+    container_name: app_staging
+  tasks:
+    - name: Ensure Docker, Nginx, Python Docker SDK
+      apt:
+        name: [docker.io, nginx, python3-docker]
+        state: present
+        update_cache: yes
+
+    - name: Pull image
+      community.docker.docker_image:
+        name: "{{ image }}"
+        tag: "{{ tag }}"
+        source: pull
+
+    - name: Remove old container (if any)
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Run staging container on localhost:{{ app_port }}
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ image }}:{{ tag }}"
+        state: started
+        restart_policy: always
+        published_ports:
+          - "127.0.0.1:{{ app_port }}:8000"
+        env:
+          DJANGO_SETTINGS_MODULE: employee_directory.settings
+
+    - name: Wait for app
+      uri:
+        url: "http://127.0.0.1:{{ app_port }}/"
+        status_code: 200
+      register: _h
+      retries: 20
+      delay: 2
+      until: _h.status == 200
+
+    - name: Configure Nginx reverse proxy
+      copy:
+        dest: /etc/nginx/conf.d/employee.conf
+        content: |
+          upstream app_upstream { server 127.0.0.1:{{ app_port }}; }
+          server {
+            listen 80;
+            server_name {{ domain_name | default('_') }};
+            server_tokens off;
+            location / {
+              proxy_pass http://app_upstream;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            }
+          }
+
+    - name: Disable default site
+      file: { path: /etc/nginx/sites-enabled/default, state: absent }
+
+    - name: Test & reload nginx
+      command: nginx -t
+      register: test
+      changed_when: false
+    - debug: { var: test.stderr_lines }
+    - service: { name: nginx, state: reloaded }
