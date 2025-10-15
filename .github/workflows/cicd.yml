@@ -94,24 +94,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - run: npm init -y
-      - run: npm i -D @playwright/test
-      - uses: microsoft/playwright-github-action@v1
+      # ---- Playwright without the deprecated action ----
+      - name: Install Playwright test runner
+        run: |
+          npm init -y
+          npm i -D @playwright/test
 
-      - name: Playwright UI test
+      - name: Install Chromium + system deps
+        run: |
+          npx playwright install chromium
+          sudo npx playwright install-deps chromium
+
+      - name: Playwright UI test (chromium)
         env:
           STAGING_URL: ${{ env.STAGING_URL }}
         run: npx playwright test tests/ui/playwright.spec.ts --project=chromium
 
+      # ---- k6 smoke ----
       - name: k6 smoke
         run: |
           docker run --rm -e BASE_URL=${{ env.STAGING_URL }} \
             -v "$PWD/tests/load":/scripts grafana/k6 run /scripts/k6.js
 
+      # ---- ZAP baseline ----
       - name: ZAP baseline
         run: |
           docker run --rm -t -v "$PWD":/zap/wrk ghcr.io/zaproxy/zaproxy:stable \
@@ -126,7 +136,7 @@ jobs:
   deploy_prod:
     needs: checks_staging
     runs-on: ubuntu-latest
-    environment: "production env"   # matches your GitHub environment name
+    environment: "production env"   # must match your Environment name
     steps:
       - uses: actions/checkout@v4
 
