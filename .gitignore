@@ -1,0 +1,27 @@
+# OS junk
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build/Artifacts
+artifacts/
+test-results/
+zap.html
+
+# Keys & certs (never commit)
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.pub
