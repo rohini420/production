@@ -36,12 +36,14 @@
       community.docker.docker_container:
         name: "{{ container_prefix }}{{ target_color }}"
         image: "{{ image }}:{{ tag }}"
+        platform: linux/amd64
         state: started
         restart_policy: always
         published_ports:
           - "{{ (target_color == 'blue') | ternary(app_port_blue, app_port_green) }}:8000"
         env:
           DJANGO_SETTINGS_MODULE: employee_directory.settings
+          DJANGO_SECRET_KEY: "{{ django_secret_key }}"
 
     - name: Wait for app on target port
       uri:

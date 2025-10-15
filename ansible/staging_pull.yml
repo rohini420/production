@@ -10,18 +10,26 @@
         name: [docker.io, nginx, python3-docker]
         state: present
         update_cache: yes
-
+    - name: Docker prune (images/containers/networks/volumes)
+      command: docker system prune -af --volumes
+      changed_when: false
     - name: Pull image
       community.docker.docker_image:
         name: "{{ image }}"
         tag: "{{ tag }}"
         source: pull
 
-    - name: Remove old container (if any)
+    - name: Run staging container on localhost:{{ app_port }}
       community.docker.docker_container:
         name: "{{ container_name }}"
-        state: absent
-      ignore_errors: true
+        image: "{{ image }}:{{ tag }}"
+        state: started
+        restart_policy: always
+        published_ports:
+          - "127.0.0.1:{{ app_port }}:8000"
+        env:
+          DJANGO_SETTINGS_MODULE: employee_directory.settings
+          DJANGO_SECRET_KEY: "{{ django_secret_key }}"   
 
     - name: Run staging container on localhost:{{ app_port }}
       community.docker.docker_container:
