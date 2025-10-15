@@ -86,6 +86,7 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING=False \
           ansible-playbook -i ansible/inventory.ini ansible/staging_pull.yml \
             -e image=$IMG -e tag=$TAG \
+            -e django_secret_key='${{ secrets.DJANGO_SECRET_KEY }}' \
             -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
 
   checks_staging:
@@ -169,6 +170,7 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING=False \
           ansible-playbook -i ansible/inventory.ini ansible/prod-bluegreen-pull.yml \
             -e image=$IMG -e tag=$TAG \
+            -e django_secret_key='${{ secrets.DJANGO_SECRET_KEY }}' \
             -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
 
       - name: Post-deploy smoke
