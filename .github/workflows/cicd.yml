@@ -83,15 +83,10 @@ jobs:
           IMG: ${{ env.IMAGE_NAME }}
           TAG: ${{ github.run_number }}
         run: |
-          export ANSIBLE_FORKS=1                              # <— single process
-          export ANSIBLE_PIPELINING=true                      # <— a bit faster/leaner
-          ANSIBLE_HOST_KEY_CHECKING=False \
-          ansible-playbook -i ansible/inventory.ini ansible/staging_pull.yml \
-            --forks 1 -vvv \                                  # <— also set on CLI
-            -e image=$IMG -e tag=$TAG \
-            -e django_secret_key='***' \
-            -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
-
+          set -e
+          export ANSIBLE_FORKS=1
+          export ANSIBLE_PIPELINING=true
+          ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/inventory.ini ansible/staging_pull.yml --forks 1 -vvv -e image="$IMG" -e tag="$TAG" -e django_secret_key='${{ secrets.DJANGO_SECRET_KEY }}' -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
 
   checks_staging:
     needs: deploy_staging
@@ -104,7 +99,7 @@ jobs:
         with:
           node-version: '20'
 
-      # ---- Playwright without the deprecated action ----
+      # Playwright (no deprecated action)
       - name: Install Playwright test runner
         run: |
           npm init -y
@@ -120,13 +115,11 @@ jobs:
           STAGING_URL: ${{ env.STAGING_URL }}
         run: npx playwright test tests/ui/playwright.spec.ts --project=chromium
 
-      # ---- k6 smoke ----
       - name: k6 smoke
         run: |
           docker run --rm -e BASE_URL=${{ env.STAGING_URL }} \
             -v "$PWD/tests/load":/scripts grafana/k6 run /scripts/k6.js
 
-      # ---- ZAP baseline ----
       - name: ZAP baseline
         run: |
           docker run --rm -t -v "$PWD":/zap/wrk ghcr.io/zaproxy/zaproxy:stable \
@@ -141,7 +134,7 @@ jobs:
   deploy_prod:
     needs: checks_staging
     runs-on: ubuntu-latest
-    environment: "production env"   # must match your Environment name
+    environment: "production env"
     steps:
       - uses: actions/checkout@v4
 
@@ -171,11 +164,10 @@ jobs:
           IMG: ${{ env.IMAGE_NAME }}
           TAG: ${{ github.run_number }}
         run: |
-          ANSIBLE_HOST_KEY_CHECKING=False \
-          ansible-playbook -i ansible/inventory.ini ansible/prod-bluegreen-pull.yml \
-            -e image=$IMG -e tag=$TAG \
-            -e django_secret_key='${{ secrets.DJANGO_SECRET_KEY }}' \
-            -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
+          set -e
+          export ANSIBLE_FORKS=1
+          export ANSIBLE_PIPELINING=true
+          ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/inventory.ini ansible/prod-bluegreen-pull.yml --forks 1 -vvv -e image="$IMG" -e tag="$TAG" -e django_secret_key='${{ secrets.DJANGO_SECRET_KEY }}' -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
 
       - name: Post-deploy smoke
         run: curl -fsS "${{ env.PROD_URL }}/" | grep -i "Employee Directory"
