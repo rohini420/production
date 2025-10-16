@@ -5,32 +5,35 @@
     image: ""   # e.g. ghcr.io/OWNER/REPO/employee-dir
     tag: ""     # e.g. 42
     container_name: app_staging
+
+  pre_tasks:
+    # Make sure Python exists so Ansible modules can run (runs even if Python is missing)
+    - name: Ensure Python 3 is present (bootstrap)
+      raw: test -e /usr/bin/python3 || (apt-get update -y && apt-get install -y python3)
+      changed_when: false
+
+    # Now that Python exists, collect facts
+    - name: Gather facts
+      setup:
+
   tasks:
     - name: Ensure Docker, Nginx, Python Docker SDK
       apt:
         name: [docker.io, nginx, python3-docker]
         state: present
         update_cache: yes
-    - name: Docker prune (images/containers/networks/volumes)
-      command: docker system prune -af --volumes
-      changed_when: false
+
     - name: Pull image
       community.docker.docker_image:
         name: "{{ image }}"
         tag: "{{ tag }}"
         source: pull
 
-    - name: Run staging container on localhost:{{ app_port }}
+    - name: Remove old container (if any)
       community.docker.docker_container:
         name: "{{ container_name }}"
-        image: "{{ image }}:{{ tag }}"
-        state: started
-        restart_policy: always
-        published_ports:
-          - "127.0.0.1:{{ app_port }}:8000"
-        env:
-          DJANGO_SETTINGS_MODULE: employee_directory.settings
-          DJANGO_SECRET_KEY: "{{ django_secret_key }}"   
+        state: absent
+      ignore_errors: true
 
     - name: Run staging container on localhost:{{ app_port }}
       community.docker.docker_container:
@@ -42,6 +45,7 @@
           - "127.0.0.1:{{ app_port }}:8000"
         env:
           DJANGO_SETTINGS_MODULE: employee_directory.settings
+          SECRET_KEY: "{{ django_secret_key | default('changeme') }}"
 
     - name: Wait for app
       uri:
@@ -76,5 +80,8 @@
       command: nginx -t
       register: test
       changed_when: false
+
     - debug: { var: test.stderr_lines }
+
     - service: { name: nginx, state: reloaded }
+
