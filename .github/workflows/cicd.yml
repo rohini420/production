@@ -83,11 +83,15 @@ jobs:
           IMG: ${{ env.IMAGE_NAME }}
           TAG: ${{ github.run_number }}
         run: |
+          export ANSIBLE_FORKS=1                              # <— single process
+          export ANSIBLE_PIPELINING=true                      # <— a bit faster/leaner
           ANSIBLE_HOST_KEY_CHECKING=False \
           ansible-playbook -i ansible/inventory.ini ansible/staging_pull.yml \
+            --forks 1 -vvv \                                  # <— also set on CLI
             -e image=$IMG -e tag=$TAG \
-            -e django_secret_key='${{ secrets.DJANGO_SECRET_KEY }}' \
+            -e django_secret_key='***' \
             -e ansible_ssh_private_key_file=~/.ssh/cicd-ansible
+
 
   checks_staging:
     needs: deploy_staging

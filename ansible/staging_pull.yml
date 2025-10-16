@@ -1,5 +1,6 @@
 - hosts: staging
   become: yes
+  gather_facts: false
   vars:
     image: ""   # e.g. ghcr.io/OWNER/REPO/employee-dir
     tag: ""     # e.g. 42
